@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LaTeX 表作成ツール (罫線修正完了版)</title>
+    <style>
+        /* --- 変数定義 (ライト/ダーク) --- */
+        :root {
+            /* ライトモード (デフォルト) */
+            --primary: #2b7de9;
+            --bg-body: #f4f4f4;
+            --bg-paper: #ffffff;       /* サイドバー、セル背景 */
+            --bg-toolbar: #f5f5f5;     /* ツールバー */
+            --bg-header: #e6e6e6;      /* テーブルヘッダー */
+            --bg-grid: #dcdcdc;        /* テーブル背景のグレー部分 */
+            --bg-hover: #eeeeee;       /* ボタンホバー時 */
+            --bg-input: #ffffff;       /* 入力欄 */
+            --bg-code: #f9f9f9;        /* コード出力欄 */
+            --text-main: #333333;
+            --text-muted: #666666;
+            --border: #cccccc;
+            --selection-bg: rgba(43, 125, 233, 0.2);
+            --focus-ring: #2b7de9;
+            --user-border-color: #000000; /* ユーザーが引いた罫線の色 */
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                /* ダークモード */
+                --primary: #4c9df8;
+                --bg-body: #1e1e1e;
+                --bg-paper: #252526;
+                --bg-toolbar: #2d2d2d;
+                --bg-header: #383838;
+                --bg-grid: #121212;
+                --bg-hover: #3e3e3e;
+                --bg-input: #1e1e1e;
+                --bg-code: #1e1e1e;
+                --text-main: #e0e0e0;
+                --text-muted: #aaaaaa;
+                --border: #444444;
+                --selection-bg: rgba(76, 157, 248, 0.3);
+                --focus-ring: #4c9df8;
+                --user-border-color: #ffffff;
+            }
+        }
+
+        body {
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            font-size: 13px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .sidebar {
+            width: 320px;
+            background: var(--bg-paper);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            z-index: 20;
+            user-select: text;
+        }
+
+        .main-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- ツールバー修正 (2段対応) --- */
+        .toolbar {
+            background: var(--bg-toolbar);
+            border-bottom: 1px solid var(--border);
+            padding: 6px 15px;
+            display: flex;
+            flex-direction: column; /* 縦並び */
+            gap: 6px;               /* 行間の隙間 */
+            height: auto;           /* 高さを自動調整 */
+            flex-shrink: 0;
+        }
+
+        .toolbar-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            width: 100%;
+            overflow-x: auto; /* 横スクロール対応 */
+            scrollbar-width: none; /* Firefoxスクロールバー非表示 */
+        }
+        .toolbar-row::-webkit-scrollbar { display: none; } /* Chrome等スクロールバー非表示 */
+
+        .separator { width: 1px; background: var(--border); height: 20px; margin: 0 4px; flex-shrink: 0; }
+
+        button.tool-btn {
+            background: var(--bg-paper);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 4px 8px;
+            cursor: pointer;
+            color: var(--text-main);
+            font-size: 12px;
+            min-width: 28px;
+            height: 28px;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        button.tool-btn:hover:not(:disabled) { background: var(--bg-hover); }
+        button.tool-btn:disabled { opacity: 0.5; cursor: default; background: var(--bg-toolbar); }
+        
+        button.primary-action {
+            background: var(--primary);
+            color: #ffffff; 
+            border: 1px solid var(--primary);
+        }
+        button.primary-action:hover:not(:disabled) { opacity: 0.9; }
+
+        .btn-danger { color: #ff5555; border-color: #ffcccc; } 
+        @media (prefers-color-scheme: light) { .btn-danger { color: #d32f2f; border-color: #ffcdd2; } }
+
+        /* アイコン風ボタンのスタイル */
+        .icon-btn-content {
+            font-size: 14px;
+            line-height: 1;
+        }
+        .btn-text { font-size: 11px; margin-left: 2px; }
+
+        .grid-wrapper {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
+            background: var(--bg-grid);
+            position: relative;
+        }
+
+        table.sheet {
+            border-collapse: collapse; 
+            background: var(--bg-paper);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            table-layout: fixed;
+            user-select: none;
+        }
+
+        .sheet th, .sheet td {
+            border: 1px solid var(--border); 
+            min-width: 80px;
+            height: 28px;
+            padding: 0;
+            position: relative;
+            box-sizing: border-box;
+        }
+        
+        .sheet thead th { background: var(--bg-header); font-weight: normal; color: var(--text-main); text-align: center; font-size: 12px; }
+        .sheet tbody th { background: var(--bg-header); font-weight: normal; color: var(--text-main); text-align: center; width: 30px; font-size: 12px; cursor: default; }
+
+        .sheet input {
+            width: 100%; height: 100%; border: none; outline: none;
+            padding: 0 6px; font-family: inherit; font-size: inherit;
+            background: transparent;
+            color: var(--text-main);
+            text-align: center; display: block;
+            user-select: text;
+            cursor: cell;
+            box-sizing: border-box;
+        }
+        .sheet input:focus { 
+            background: var(--bg-paper);
+            box-shadow: inset 0 0 0 2px var(--focus-ring); 
+            z-index: 20; position: relative;
+            cursor: text;
+        }
+
+        /* 選択範囲のスタイル */
+        .sheet td.selected { background-color: var(--selection-bg) !important; }
+        .sheet td.selected-top { border-top: 2px solid var(--primary) !important; z-index: 10; }
+        .sheet td.selected-bottom { border-bottom: 2px solid var(--primary) !important; z-index: 10; }
+        .sheet td.selected-left { border-left: 2px solid var(--primary) !important; z-index: 10; }
+        .sheet td.selected-right { border-right: 2px solid var(--primary) !important; z-index: 10; }
+
+        .form-group { margin-bottom: 15px; }
+        .form-control { 
+            width: 100%; padding: 6px; 
+            border: 1px solid var(--border); 
+            background: var(--bg-input);
+            color: var(--text-main);
+            border-radius: 3px; 
+            box-sizing: border-box; 
+        }
+        .form-control:focus { outline: none; border-color: var(--primary); }
+
+        textarea.code-output { 
+            width: 100%; height: 250px; padding: 8px; 
+            font-family: monospace; font-size: 11px; 
+            border: 1px solid var(--border); 
+            background: var(--bg-code); 
+            color: var(--text-main);
+            resize: vertical; user-select: text; 
+        }
+        
+        h2, label { color: var(--text-main); }
+        div[style*="font-size:11px"] { color: var(--text-muted) !important; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2 style="margin-top:0; font-size:16px;">LaTeX 表作成ツール</h2>
+        <div class="form-group"><label>キャプション (Caption)</label><input type="text" id="caption" class="form-control" oninput="updateLatex()"></div>
+        <div class="form-group"><label>ラベル (Label)</label><input type="text" id="label" class="form-control" value="tab:mytable" oninput="updateLatex()"></div>
+        <div class="form-group">
+            <label><input type="checkbox" id="chkBooktabs" checked onchange="updateLatex()"> Booktabs形式</label><br>
+            <label><input type="checkbox" id="chkCenter" checked onchange="updateLatex()"> 中央揃え</label><br>
+            <label><input type="checkbox" id="chkEscape" checked onchange="updateLatex()"> 特殊文字エスケープ (%, _ etc)</label>
+            <div style="font-size:11px; margin-left:20px; margin-top:2px;">※ $で囲まれた数式は保護されます</div>
+        </div>
+        <div class="form-group" style="margin-top:auto;">
+            <label>LaTeX 出力</label>
+            <textarea id="output" class="code-output" readonly></textarea>
+            <button type="button" class="tool-btn primary-action" style="width:100%; margin-top:10px;" onclick="copyCode()">コードをコピー</button>
+        </div>
+    </div>
+
+    <div class="main-area">
+        <div class="toolbar">
+            <div class="toolbar-row">
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="gridOp('insRowAbove')" title="上に行を挿入">行<span style="font-size:10px">▲</span></button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="gridOp('insRowBelow')" title="下に行を挿入">行<span style="font-size:10px">▼</span></button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="gridOp('insColLeft')" title="左に列を挿入"><span style="font-size:10px">◀</span>列</button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="gridOp('insColRight')" title="右に列を挿入">列<span style="font-size:10px">▶</span></button>
+                
+                <button type="button" class="tool-btn btn-danger" onmousedown="preventFocus(event)" onclick="gridOp('delRow')" title="選択行を削除">行✕</button>
+                <button type="button" class="tool-btn btn-danger" onmousedown="preventFocus(event)" onclick="gridOp('delCol')" title="選択列を削除">列✕</button>
+                
+                <div class="separator"></div>
+
+                <button type="button" class="tool-btn primary-action" id="btnMerge" onmousedown="preventFocus(event)" onclick="mergeCells()" disabled title="選択セルを結合">結合</button>
+                <button type="button" class="tool-btn" id="btnUnmerge" onmousedown="preventFocus(event)" onclick="unmergeCells()" disabled title="結合を解除">解除</button>
+            </div>
+                        <div class="toolbar-row">
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="toggleStyle('bold')" title="太字"><b>B</b></button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="toggleStyle('italic')" title="斜体"><i>I</i></button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="toggleStyle('underline')" title="下線"><u>U</u></button>
+                <div class="separator"></div>
+                
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setBorder('all')" title="格子"><span class="icon-btn-content">田</span></button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setBorder('outer')" title="外枠"><span class="icon-btn-content" style="border: 1px solid currentColor; width:12px; height:12px; display:inline-block;"></span></button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setBorder('none')" title="枠なし"><span class="icon-btn-content">✕</span></button>
+                <div class="separator"></div>
+
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setBorder('top')" title="上罫線"><span style="text-decoration:overline">T</span></button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setBorder('bottom')" title="下罫線"><span style="text-decoration:underline">B</span></button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setBorder('left')" title="左罫線">|L</button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setBorder('right')" title="右罫線">R|</button>
+                <div class="separator"></div>
+
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setColAlign('l')" title="左揃え">L</button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setColAlign('c')" title="中央揃え">C</button>
+                <button type="button" class="tool-btn" onmousedown="preventFocus(event)" onclick="setColAlign('r')" title="右揃え">R</button>
+            </div>
+        </div>
+
+        <div class="grid-wrapper">
+            <table class="sheet" id="mainTable"></table>
+        </div>
+    </div>
+
+    <script>
+        function preventFocus(e) { e.preventDefault(); e.stopPropagation(); }
+
+        const state = {
+            rows: 5, cols: 5,
+            data: [],
+            colAligns: [],
+            selStart: {r:0, c:0},
+            selEnd: {r:0, c:0},
+            isDragging: false 
+        };
+
+        function init() {
+            state.colAligns = new Array(state.cols).fill('c');
+            for(let r=0; r<state.rows; r++) {
+                const row = [];
+                for(let c=0; c<state.cols; c++) row.push(createCell());
+                state.data.push(row);
+            }
+            render();
+            updateLatex();
+
+            window.addEventListener('mouseup', () => {
+                if(state.isDragging) state.isDragging = false;
+            });
+        }
+
+        function createCell() {
+            return { 
+                text: '', bold: false, italic: false, underline: false,
+                borders: { t: false, b: false, l: false, r: false },
+                rowSpan: 1, colSpan: 1, mergedTo: null 
+            };
+        }
+
+        function render() {
+            const table = document.getElementById('mainTable');
+            table.innerHTML = '';
+            
+            // Header
+            const thead = document.createElement('thead');
+            const trHead = document.createElement('tr');
+            trHead.appendChild(document.createElement('th'));
+            for(let c=0; c<state.cols; c++) {
+                const th = document.createElement('th');
+                th.textContent = String.fromCharCode(65 + (c % 26));
+                trHead.appendChild(th);
+            }
+            thead.appendChild(trHead);
+            table.appendChild(thead);
+
+            // Body
+            const tbody = document.createElement('tbody');
+            const range = getNormalizedRange();
+            
+            for(let r=0; r<state.rows; r++) {
+                const tr = document.createElement('tr');
+                const thRow = document.createElement('th');
+                thRow.textContent = r + 1;
+                tr.appendChild(thRow);
+
+                for(let c=0; c<state.cols; c++) {
+                    const cell = state.data[r][c];
+                    if (cell.mergedTo) continue;
+
+                    const td = document.createElement('td');
+                    td.rowSpan = cell.rowSpan;
+                    td.colSpan = cell.colSpan;
+
+                    // Borders
+                    const borderColor = "var(--user-border-color)";
+                    const borderStyle = "2px solid " + borderColor;
+                    if (cell.borders.t) td.style.borderTop = borderStyle;
+                    if (cell.borders.b) td.style.borderBottom = borderStyle;
+                    if (cell.borders.l) td.style.borderLeft = borderStyle;
+                    if (cell.borders.r) td.style.borderRight = borderStyle;
+
+                    // Selection
+                    const rEnd = r + cell.rowSpan - 1;
+                    const cEnd = c + cell.colSpan - 1;
+                    const isSelected = !(rEnd < range.r1 || r > range.r2 || cEnd < range.c1 || c > range.c2);
+
+                    if (isSelected) {
+                        td.classList.add('selected');
+                        if (r === range.r1) td.classList.add('selected-top');
+                        if (rEnd === range.r2) td.classList.add('selected-bottom');
+                        if (c === range.c1) td.classList.add('selected-left');
+                        if (cEnd === range.c2) td.classList.add('selected-right');
+                    }
+
+                    const input = document.createElement('input');
+                    input.value = cell.text || "";
+                    input.dataset.r = r;
+                    input.dataset.c = c;
+                    
+                    if(cell.bold) input.style.fontWeight = 'bold';
+                    if(cell.italic) input.style.fontStyle = 'italic';
+                    if(cell.underline) input.style.textDecoration = 'underline';
+
+                    const alignChar = state.colAligns[c] || 'c';
+                    input.style.textAlign = alignChar === 'l' ? 'left' : (alignChar === 'r' ? 'right' : 'center');
+
+                    // Events
+                    input.onmousedown = (e) => {
+                        if (e.button !== 0) return;
+                        state.isDragging = true;
+                        state.selStart = {r, c};
+                        state.selEnd = {r, c};
+                        render();
+                        setTimeout(() => {
+                            const ni = document.querySelector(`input[data-r="${r}"][data-c="${c}"]`);
+                            if(ni) ni.focus();
+                        }, 0);
+                    };
+                    input.onmouseenter = (e) => {
+                        if (state.isDragging) {
+                            if (state.selEnd.r !== r || state.selEnd.c !== c) {
+                                state.selEnd = {r, c};
+                                if(document.activeElement) document.activeElement.blur();
+                                render();
+                            }
+                        }
+                    };
+                    input.oninput = (e) => { cell.text = e.target.value; updateLatex(); };
+                    input.onkeydown = (e) => handleInputKey(e, r, c);
+
+                    td.appendChild(input);
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+
+            // Button States
+            const cellCount = (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
+            document.getElementById('btnMerge').disabled = (cellCount <= 1);
+            
+            let hasMerged = false;
+            for(let r=range.r1; r<=range.r2; r++) {
+                for(let c=range.c1; c<=range.c2; c++) {
+                    const cell = state.data[r][c];
+                    if(!cell.mergedTo && (cell.rowSpan > 1 || cell.colSpan > 1)) hasMerged = true;
+                }
+            }
+            document.getElementById('btnUnmerge').disabled = !hasMerged;
+        }
+
+        // --- Keyboard ---
+        function handleInputKey(e, r, c) {
+            if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) return;
+            const input = e.target;
+            if (e.key === 'ArrowLeft' && input.selectionStart > 0) return;
+            if (e.key === 'ArrowRight' && input.selectionStart < input.value.length) return;
+            e.preventDefault();
+
+            const currentCell = state.data[r][c];
+            let nextR = r, nextC = c;
+
+            if (e.key === 'ArrowUp') nextR = r - 1;
+            else if (e.key === 'ArrowDown' || e.key === 'Enter') nextR = r + currentCell.rowSpan;
+            else if (e.key === 'ArrowLeft') nextC = c - 1;
+            else if (e.key === 'ArrowRight') nextC = c + currentCell.colSpan;
+
+            if (nextR < 0 || nextR >= state.rows || nextC < 0 || nextC >= state.cols) return;
+
+            const targetCell = state.data[nextR][nextC];
+            if (targetCell.mergedTo) {
+                nextR = targetCell.mergedTo.r;
+                nextC = targetCell.mergedTo.c;
+            }
+
+            state.selStart = {r: nextR, c: nextC};
+            state.selEnd = {r: nextR, c: nextC};
+            render();
+            setTimeout(() => {
+                const ni = document.querySelector(`input[data-r="${nextR}"][data-c="${nextC}"]`);
+                if(ni) ni.focus();
+            }, 0);
+        }
+
+        // --- Core Logic ---
+
+        function getNormalizedRange() {
+            if (!state.selStart || !state.selEnd) return {r1:0, r2:0, c1:0, c2:0};
+            let r1 = Math.min(state.selStart.r, state.selEnd.r);
+            let r2 = Math.max(state.selStart.r, state.selEnd.r);
+            let c1 = Math.min(state.selStart.c, state.selEnd.c);
+            let c2 = Math.max(state.selStart.c, state.selEnd.c);
+
+            let changed = true;
+            while(changed) {
+                changed = false;
+                for(let r=r1; r<=r2; r++) {
+                    for(let c=c1; c<=c2; c++) {
+                        let cell = state.data[r][c];
+                        let origin = cell.mergedTo ? cell.mergedTo : {r,c};
+                        let master = state.data[origin.r][origin.c];
+                        let rEnd = origin.r + master.rowSpan - 1;
+                        let cEnd = origin.c + master.colSpan - 1;
+
+                        if (origin.r < r1) { r1 = origin.r; changed = true; }
+                        if (rEnd > r2)     { r2 = rEnd; changed = true; }
+                        if (origin.c < c1) { c1 = origin.c; changed = true; }
+                        if (cEnd > c2)     { c2 = cEnd; changed = true; }
+                    }
+                }
+            }
+            return {r1, r2, c1, c2};
+        }
+
+        function setColAlign(align) {
+            const range = getNormalizedRange();
+            for(let c=range.c1; c<=range.c2; c++) {
+                if (c >= 0 && c < state.cols) state.colAligns[c] = align;
+            }
+            render(); updateLatex();
+        }
+
+        function toggleStyle(prop) {
+            const range = getNormalizedRange();
+            const firstCell = state.data[range.r1][range.c1];
+            const master = firstCell.mergedTo ? state.data[firstCell.mergedTo.r][firstCell.mergedTo.c] : firstCell;
+            const newVal = !master[prop];
+            for(let r=range.r1; r<=range.r2; r++) {
+                for(let c=range.c1; c<=range.c2; c++) {
+                    const cell = state.data[r][c];
+                    if (!cell.mergedTo) cell[prop] = newVal;
+                }
+            }
+            render(); updateLatex();
+        }
+
+        function setBorder(type) {
+            const range = getNormalizedRange();
+            for(let r=range.r1; r<=range.r2; r++) {
+                for(let c=range.c1; c<=range.c2; c++) {
+                    const cell = state.data[r][c];
+                    if (cell.mergedTo) continue;
+                    const rEnd = r + cell.rowSpan - 1;
+                    const cEnd = c + cell.colSpan - 1;
+                    const isTop = (r === range.r1);
+                    const isBottom = (rEnd === range.r2);
+                    const isLeft = (c === range.c1);
+                    const isRight = (cEnd === range.c2);
+
+                    if (type === 'all') {
+                        cell.borders.t = true; cell.borders.b = true; cell.borders.l = true; cell.borders.r = true;
+                    } else if (type === 'none') {
+                        cell.borders.t = false; cell.borders.b = false; cell.borders.l = false; cell.borders.r = false;
+                    } else if (type === 'outer') {
+                        if (isTop) cell.borders.t = true;
+                        if (isBottom) cell.borders.b = true;
+                        if (isLeft) cell.borders.l = true;
+                        if (isRight) cell.borders.r = true;
+                    } else if (type === 'top') { if (isTop) cell.borders.t = !cell.borders.t;
+                    } else if (type === 'bottom') { if (isBottom) cell.borders.b = !cell.borders.b;
+                    } else if (type === 'left') { if (isLeft) cell.borders.l = !cell.borders.l;
+                    } else if (type === 'right') { if (isRight) cell.borders.r = !cell.borders.r;
+                    }
+                }
+            }
+            render(); updateLatex();
+        }
+
+        function mergeCells() {
+            const range = getNormalizedRange();
+            const cellCount = (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
+            if (cellCount <= 1) return;
+
+            const master = state.data[range.r1][range.c1];
+            master.rowSpan = range.r2 - range.r1 + 1;
+            master.colSpan = range.c2 - range.c1 + 1;
+            master.mergedTo = null;
+
+            for(let r=range.r1; r<=range.r2; r++) {
+                for(let c=range.c1; c<=range.c2; c++) {
+                    if(r===range.r1 && c===range.c1) continue;
+                    state.data[r][c].mergedTo = {r: range.r1, c: range.c1};
+                    state.data[r][c].rowSpan = 1; 
+                    state.data[r][c].colSpan = 1; 
+                    state.data[r][c].text = ''; 
+                }
+            }
+            state.selStart = {r: range.r1, c: range.c1};
+            state.selEnd = {r: range.r1, c: range.c1};
+            render(); updateLatex();
+        }
+
+        function unmergeCells() {
+            const range = getNormalizedRange();
+            for(let r=range.r1; r<=range.r2; r++) {
+                for(let c=range.c1; c<=range.c2; c++) {
+                    const cell = state.data[r][c];
+                    if (!cell.mergedTo && (cell.rowSpan > 1 || cell.colSpan > 1)) {
+                        const savedText = cell.text;
+                        const savedBold = cell.bold;
+                        const savedItalic = cell.italic;
+                        const savedUnderline = cell.underline;
+                        const rEnd = r + cell.rowSpan - 1; 
+                        const cEnd = c + cell.colSpan - 1;
+                        cell.rowSpan = 1; cell.colSpan = 1;
+                        cell.text = savedText; cell.bold = savedBold;
+                        cell.italic = savedItalic; cell.underline = savedUnderline;
+
+                        for(let i=r; i<=rEnd; i++) {
+                            for(let j=c; j<=cEnd; j++) {
+                                if(i===r && j===c) continue;
+                                state.data[i][j].mergedTo = null;
+                                state.data[i][j].text = ''; 
+                                state.data[i][j].borders = {t:false, b:false, l:false, r:false};
+                            }
+                        }
+                    }
+                }
+            }
+            render(); updateLatex();
+        }
+
+        // --- Grid Operations ---
+
+        function gridOp(op) {
+            const range = getNormalizedRange();
+            
+            if (op === 'insRowAbove') {
+                insertRow(range.r1);
+            } else if (op === 'insRowBelow') {
+                insertRow(range.r2 + 1);
+            } else if (op === 'insColLeft') {
+                insertCol(range.c1);
+            } else if (op === 'insColRight') {
+                insertCol(range.c2 + 1);
+            } else if (op === 'delRow') {
+                deleteRows(range.r1, range.r2);
+            } else if (op === 'delCol') {
+                deleteCols(range.c1, range.c2);
+            }
+            
+            render(); updateLatex();
+        }
+
+        function insertRow(rIdx) {
+            const newRow = [];
+            for(let c=0; c<state.cols; c++) newRow.push(createCell());
+            state.data.splice(rIdx, 0, newRow);
+            state.rows++;
+            adjustMergeRefs('row', rIdx, 1);
+        }
+
+        function insertCol(cIdx) {
+            state.data.forEach(row => row.splice(cIdx, 0, createCell()));
+            state.colAligns.splice(cIdx, 0, 'c');
+            state.cols++;
+            adjustMergeRefs('col', cIdx, 1);
+        }
+
+        function deleteRows(fromR, toR) {
+            const count = toR - fromR + 1;
+            if (state.rows <= count) return;
+            
+            unmergeRange(fromR, toR, 0, state.cols - 1);
+            
+            state.data.splice(fromR, count);
+            state.rows -= count;
+            
+            adjustMergeRefs('row', fromR, -count);
+            state.selStart = {r: Math.min(fromR, state.rows-1), c: state.selStart.c};
+            state.selEnd = {r: Math.min(fromR, state.rows-1), c: state.selEnd.c};
+        }
+
+        function deleteCols(fromC, toC) {
+            const count = toC - fromC + 1;
+            if (state.cols <= count) return; 
+
+            unmergeRange(0, state.rows - 1, fromC, toC);
+            
+            state.data.forEach(row => row.splice(fromC, count));
+            state.colAligns.splice(fromC, count);
+            state.cols -= count;
+
+            adjustMergeRefs('col', fromC, -count);
+            state.selStart = {r: state.selStart.r, c: Math.min(fromC, state.cols-1)};
+            state.selEnd = {r: state.selEnd.r, c: Math.min(fromC, state.cols-1)};
+        }
+
+        function unmergeRange(r1, r2, c1, c2) {
+            for(let r=0; r<state.rows; r++) {
+                for(let c=0; c<state.cols; c++) {
+                    const cell = state.data[r][c];
+                    if (!cell.mergedTo && (cell.rowSpan > 1 || cell.colSpan > 1)) {
+                        const cellR2 = r + cell.rowSpan - 1;
+                        const cellC2 = c + cell.colSpan - 1;
+                        if (!(cellR2 < r1 || r > r2 || cellC2 < c1 || c > c2)) {
+                            const savedStart = state.selStart; const savedEnd = state.selEnd;
+                            state.selStart = {r:r, c:c}; state.selEnd = {r:cellR2, c:cellC2};
+                            unmergeCells(); 
+                            state.selStart = savedStart; state.selEnd = savedEnd;
+                        }
+                    }
+                }
+            }
+        }
+
+        function adjustMergeRefs(type, boundaryIndex, delta) {
+            for(let r=0; r<state.rows; r++) {
+                for(let c=0; c<state.cols; c++) {
+                    const cell = state.data[r][c];
+                    if (cell.mergedTo) {
+                        if (type === 'row') {
+                            if (cell.mergedTo.r >= boundaryIndex) {
+                                cell.mergedTo.r += delta;
+                            }
+                        } else {
+                            if (cell.mergedTo.c >= boundaryIndex) {
+                                cell.mergedTo.c += delta;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        function updateLatex() {
+            const caption = document.getElementById('caption').value;
+            const label = document.getElementById('label').value;
+            const booktabs = document.getElementById('chkBooktabs').checked;
+            const center = document.getElementById('chkCenter').checked;
+            const escape = document.getElementById('chkEscape').checked;
+
+            let hasCustomBorders = false;
+            for(let r=0; r<state.rows; r++) {
+                for(let c=0; c<state.cols; c++) {
+                    const b = state.data[r][c].borders;
+                    if(b.t || b.b || b.l || b.r) { hasCustomBorders = true; break; }
+                }
+                if(hasCustomBorders) break;
+            }
+
+            let lines = [];
+            lines.push("\\begin{table}[htbp]");
+            if(center) lines.push("  \\centering");
+            if(caption) lines.push(`  \\caption{${caption}}`);
+            if(label) lines.push(`  \\label{${label}}`);
+
+            let colSpecs = state.colAligns.join('');
+            lines.push(`  \\begin{tabular}{${colSpecs}}`);
+            
+            if (!hasCustomBorders) {
+                if(booktabs) lines.push("    \\toprule"); else lines.push("    \\hline");
+            } else {
+                let topClines = [];
+                let c = 0;
+                while (c < state.cols) {
+                    const cell = state.data[0][c];
+                    if (cell.borders.t) {
+                        let start = c + 1;
+                        let end = c + cell.colSpan;
+                        topClines.push(`\\cline{${start}-${end}}`);
+                    }
+                    c += cell.colSpan || 1;
+                }
+                if (topClines.length > 0) lines.push("    " + topClines.join(" "));
+                else if (booktabs) lines.push("    \\toprule");
+                else lines.push("    \\hline");
+            }
+
+            for(let r=0; r<state.rows; r++) {
+                let rowParts = [];
+                for(let c=0; c<state.cols; c++) {
+                    const cell = state.data[r][c];
+                    
+                    if (cell.mergedTo) {
+                        const parent = state.data[cell.mergedTo.r][cell.mergedTo.c];
+                        if (cell.mergedTo.r === r) continue; // 行内水平結合はスキップ（親セルが処理）
+                        
+                        if (cell.mergedTo.c === c) {
+                            let vLeft = parent.borders.l ? '|' : '';
+                            let vRight = parent.borders.r ? '|' : '';
+                            if (vLeft || vRight || hasCustomBorders) {
+                                rowParts.push(`\\multicolumn{${parent.colSpan}}{${vLeft}c${vRight}}{}`);
+                            } else {
+                                if (parent.colSpan > 1) rowParts.push(`\\multicolumn{${parent.colSpan}}{c}{}`);
+                                else rowParts.push(""); 
+                            }
+                        }
+                    } else {
+                        let text = cell.text;
+                        if(escape) {
+                            let parts = text.split('$');
+                            for(let i=0; i<parts.length; i++) {
+                                if (i % 2 === 0) {
+                                    parts[i] = parts[i].replace(/([%&{}#_])/g, "\\$1");
+                                }
+                            }
+                            text = parts.join('$');
+                        }
+                        
+                        if(cell.bold) text = `\\textbf{${text}}`;
+                        if(cell.italic) text = `\\textit{${text}}`;
+                        if(cell.underline) text = `\\underline{${text}}`;
+                        
+                        let content = text;
+                        if (cell.rowSpan > 1) content = `\\multirow{${cell.rowSpan}}{*}{${content}}`;
+                        
+                        let align = state.colAligns[c] || 'c';
+                        let vLeft = cell.borders.l ? '|' : '';
+                        let vRight = cell.borders.r ? '|' : '';
+
+                        if (hasCustomBorders || cell.colSpan > 1) {
+                            let spec = `${vLeft}${align}${vRight}`;
+                            content = `\\multicolumn{${cell.colSpan}}{${spec}}{${content}}`;
+                        }
+                        rowParts.push(content);
+                    }
+                }
+                lines.push("    " + rowParts.join(" & ") + " \\\\");
+
+                // 行下のボーダー (\cline) 出力ロジックの修正
+                if (hasCustomBorders) {
+                    let clines = [];
+                    let c = 0;
+                    while(c < state.cols) {
+                        let cell = state.data[r][c];
+                        let colspan = cell.colSpan; 
+
+                        if (cell.mergedTo) {
+                            const parent = state.data[cell.mergedTo.r][cell.mergedTo.c];
+                            colspan = parent.colSpan; 
+
+                            // 修正箇所: parent.r ではなく cell.mergedTo.r を使用
+                            const pEndRow = cell.mergedTo.r + parent.rowSpan - 1;
+                            if (pEndRow === r && parent.borders.b) {
+                                clines.push(`\\cline{${c+1}-${c+parent.colSpan}}`);
+                            }
+                        } else {
+                            const rEnd = r + cell.rowSpan - 1;
+                            if (rEnd === r && cell.borders.b) {
+                                clines.push(`\\cline{${c+1}-${c+cell.colSpan}}`);
+                            }
+                        }
+                        
+                        c += colspan;
+                    }
+                    if (clines.length > 0) lines.push("    " + clines.join(" "));
+                } else {
+                    if(booktabs) { 
+                        if(r===0) lines.push("    \\midrule"); 
+                    } else { 
+                        lines.push("    \\hline"); 
+                    }
+                }
+            }
+            if (!hasCustomBorders && booktabs) lines.push("    \\bottomrule");
+            else if (!hasCustomBorders) lines.push("    \\hline");
+
+            lines.push("  \\end{tabular}");
+            lines.push("\\end{table}");
+            document.getElementById('output').value = lines.join("\n");
+        }
+
+        function copyCode() {
+            const el = document.getElementById('output');
+            el.select();
+            document.execCommand('copy');
+        }
+
+        init();
+    </script>
+</body>
+</html>
