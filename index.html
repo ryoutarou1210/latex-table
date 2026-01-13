@@ -197,6 +197,7 @@
             border-radius: 3px; 
             box-sizing: border-box; 
         }
+        select.form-control { cursor: pointer; }
         .form-control:focus { outline: none; border-color: var(--primary); }
 
         textarea.code-output { 
@@ -218,8 +219,17 @@
         <h2 style="margin-top:0; font-size:16px;">LaTeX 表作成ツール</h2>
         <div class="form-group"><label>キャプション (Caption)</label><input type="text" id="caption" class="form-control" oninput="updateLatex()"></div>
         <div class="form-group"><label>ラベル (Label)</label><input type="text" id="label" class="form-control" value="tab:mytable" oninput="updateLatex()"></div>
+        
         <div class="form-group">
-            <label><input type="checkbox" id="chkBooktabs" checked onchange="updateLatex()"> Booktabs形式</label><br>
+            <label>罫線スタイル</label>
+            <select id="borderStyle" class="form-control" onchange="updateLatex()">
+                <option value="booktabs">Booktabs (デフォルト)</option>
+                <option value="hline">標準 (\hline)</option>
+                <option value="none">なし (カスタムのみ)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
             <label><input type="checkbox" id="chkCenter" checked onchange="updateLatex()"> 中央揃え</label><br>
             <label><input type="checkbox" id="chkEscape" checked onchange="updateLatex()"> 特殊文字エスケープ (%, _ etc)</label>
             <div style="font-size:11px; margin-left:20px; margin-top:2px;">※ $で囲まれた数式は保護されます</div>
@@ -555,7 +565,6 @@
                     state.data[r][c].mergedTo = {r: range.r1, c: range.c1};
                     state.data[r][c].rowSpan = 1; 
                     state.data[r][c].colSpan = 1; 
-                    state.data[r][c].text = ''; 
                 }
             }
             state.selStart = {r: range.r1, c: range.c1};
@@ -575,6 +584,7 @@
                         const savedUnderline = cell.underline;
                         const rEnd = r + cell.rowSpan - 1; 
                         const cEnd = c + cell.colSpan - 1;
+                        
                         cell.rowSpan = 1; cell.colSpan = 1;
                         cell.text = savedText; cell.bold = savedBold;
                         cell.italic = savedItalic; cell.underline = savedUnderline;
@@ -583,7 +593,6 @@
                             for(let j=c; j<=cEnd; j++) {
                                 if(i===r && j===c) continue;
                                 state.data[i][j].mergedTo = null;
-                                state.data[i][j].text = ''; 
                                 state.data[i][j].borders = {t:false, b:false, l:false, r:false};
                             }
                         }
@@ -699,7 +708,8 @@
         function updateLatex() {
             const caption = document.getElementById('caption').value;
             const label = document.getElementById('label').value;
-            const booktabs = document.getElementById('chkBooktabs').checked;
+            // 修正箇所: ドロップダウンの値を取得
+            const borderStyle = document.getElementById('borderStyle').value; // 'booktabs', 'hline', 'none'
             const center = document.getElementById('chkCenter').checked;
             const escape = document.getElementById('chkEscape').checked;
 
@@ -721,8 +731,11 @@
             let colSpecs = state.colAligns.join('');
             lines.push(`  \\begin{tabular}{${colSpecs}}`);
             
+            // 修正: 罫線出力ロジックをスタイル分岐に変更
             if (!hasCustomBorders) {
-                if(booktabs) lines.push("    \\toprule"); else lines.push("    \\hline");
+                if(borderStyle === 'booktabs') lines.push("    \\toprule");
+                else if(borderStyle === 'hline') lines.push("    \\hline");
+                // 'none' の場合は何もしない
             } else {
                 let topClines = [];
                 let c = 0;
@@ -736,8 +749,8 @@
                     c += cell.colSpan || 1;
                 }
                 if (topClines.length > 0) lines.push("    " + topClines.join(" "));
-                else if (booktabs) lines.push("    \\toprule");
-                else lines.push("    \\hline");
+                else if (borderStyle === 'booktabs') lines.push("    \\toprule");
+                else if (borderStyle === 'hline') lines.push("    \\hline");
             }
 
             for(let r=0; r<state.rows; r++) {
@@ -747,7 +760,7 @@
                     
                     if (cell.mergedTo) {
                         const parent = state.data[cell.mergedTo.r][cell.mergedTo.c];
-                        if (cell.mergedTo.r === r) continue; // 行内水平結合はスキップ（親セルが処理）
+                        if (cell.mergedTo.r === r) continue;
                         
                         if (cell.mergedTo.c === c) {
                             let vLeft = parent.borders.l ? '|' : '';
@@ -791,7 +804,6 @@
                 }
                 lines.push("    " + rowParts.join(" & ") + " \\\\");
 
-                // 行下のボーダー (\cline) 出力ロジックの修正
                 if (hasCustomBorders) {
                     let clines = [];
                     let c = 0;
@@ -802,8 +814,6 @@
                         if (cell.mergedTo) {
                             const parent = state.data[cell.mergedTo.r][cell.mergedTo.c];
                             colspan = parent.colSpan; 
-
-                            // 修正箇所: parent.r ではなく cell.mergedTo.r を使用
                             const pEndRow = cell.mergedTo.r + parent.rowSpan - 1;
                             if (pEndRow === r && parent.borders.b) {
                                 clines.push(`\\cline{${c+1}-${c+parent.colSpan}}`);
@@ -814,20 +824,25 @@
                                 clines.push(`\\cline{${c+1}-${c+cell.colSpan}}`);
                             }
                         }
-                        
                         c += colspan;
                     }
                     if (clines.length > 0) lines.push("    " + clines.join(" "));
                 } else {
-                    if(booktabs) { 
-                        if(r===0) lines.push("    \\midrule"); 
-                    } else { 
-                        lines.push("    \\hline"); 
+                    // 修正: ヘッダー下のセパレーター処理
+                    if(r === 0) {
+                        if(borderStyle === 'booktabs') lines.push("    \\midrule");
+                        else if(borderStyle === 'hline') lines.push("    \\hline");
+                    } else {
+                        if(borderStyle === 'hline') lines.push("    \\hline");
                     }
                 }
             }
-            if (!hasCustomBorders && booktabs) lines.push("    \\bottomrule");
-            else if (!hasCustomBorders) lines.push("    \\hline");
+            
+            // 修正: 最終行のボトムルール処理
+            if (!hasCustomBorders) {
+                if(borderStyle === 'booktabs') lines.push("    \\bottomrule");
+                else if(borderStyle === 'hline') lines.push("    \\hline");
+            }
 
             lines.push("  \\end{tabular}");
             lines.push("\\end{table}");
@@ -844,4 +859,3 @@
     </script>
 </body>
 </html>
-
